@@ -1,0 +1,1363 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <title>Al Madinah — Start Your Journey (VR)</title>
+
+  <!-- Brand font (Inter), matching madinah.nimapinfotech.com. -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Pacifico&display=swap" rel="stylesheet">
+
+  <!-- ============================================================
+       A-FRAME (latest stable, from CDN) — the ONLY framework used.
+       ============================================================ -->
+  <script src="https://aframe.io/releases/1.7.0/aframe.min.js"></script>
+
+  <!-- Map artwork embedded as a data URI (window.MAP_SVG_DATAURI).
+       This makes the map load taint-free even from file://, matching how
+       the pin markers work. Regenerate after editing assets/map.svg. -->
+  <script src="assets/map-data.js"></script>
+
+  <!-- Designed pin markers embedded as data URIs (window.MARKER_SVGS).
+       Regenerate after editing assets/marker{1,2,3}.svg. -->
+  <script src="assets/marker-data.js"></script>
+
+  <style>
+    /* Brand palette (madinah.nimapinfotech.com). */
+    :root {
+      --green: #004E00; --green-mid: #2E7D32;
+      --cream: #FAF8F0; --ink: #132019;
+    }
+
+    /* Prevent pull-to-refresh / page scroll stealing touch on mobile. */
+    html, body {
+      margin: 0; height: 100%; overflow: hidden;
+      background: #FFFFFF;
+      font-family: "Inter", system-ui, -apple-system, "Segoe UI", sans-serif;
+      touch-action: none; -webkit-tap-highlight-color: transparent;
+    }
+
+    /* Full-screen gate shown until the user taps Start. */
+    #start-overlay {
+      position: fixed; inset: 0; z-index: 10001;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      gap: clamp(12px, 3vw, 20px);
+      padding: max(16px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right))
+               max(16px, env(safe-area-inset-bottom)) max(16px, env(safe-area-inset-left));
+      background: radial-gradient(ellipse at 50% 25%, #FFFFFF 0%, #F3F6F0 62%, #E9EEE4 100%);
+      text-align: center;
+    }
+    #start-overlay.is-hidden { display: none; }
+
+    #start-overlay .eyebrow {
+      margin: 0; text-transform: uppercase; letter-spacing: 0.22em;
+      font-size: clamp(0.62rem, 2.6vw, 0.72rem); font-weight: 600; color: var(--green-mid);
+    }
+    #start-overlay h1 {
+      margin: 0; font-size: clamp(1.6rem, 6.5vw, 2.5rem); font-weight: 700;
+      letter-spacing: -0.01em; color: var(--ink);
+    }
+    #start-overlay p {
+      margin: 0; max-width: 30rem; font-size: clamp(0.9rem, 3.5vw, 1.05rem);
+      line-height: 1.55; color: #4A5A4A;
+    }
+
+    /* Shared primary action button (Start + Enter VR). */
+    .vr-btn {
+      min-width: min(280px, 88vw); min-height: 48px;
+      padding: 14px 28px; border: none; border-radius: 999px;
+      font-family: inherit; font-size: clamp(0.95rem, 4vw, 1.05rem);
+      font-weight: 600; cursor: pointer; letter-spacing: 0.01em;
+      color: var(--cream); background: var(--green);
+      box-shadow: 0 6px 22px rgba(0, 78, 0, 0.45);
+      touch-action: manipulation; transition: transform .1s ease, background .15s ease;
+    }
+    .vr-btn:hover { background: var(--green-mid); }
+    .vr-btn:active { transform: scale(0.97); }
+    .vr-btn.is-hidden { display: none; }
+
+    /* Enter VR — bottom-RIGHT, compact, hidden until experience has started. */
+    #enter-vr-btn {
+      position: fixed; z-index: 10000;
+      right: max(14px, env(safe-area-inset-right));
+      bottom: max(16px, calc(14px + env(safe-area-inset-bottom)));
+      min-width: auto; padding: 13px 26px;
+    }
+
+    /* Top bar: brand title + hint, overlaid so the map can fill the view.
+       pointer-events:none so it never blocks the side buttons. */
+    #topbar {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 9998;
+      display: flex; flex-direction: column; align-items: center; gap: 2px;
+      padding: max(12px, env(safe-area-inset-top)) 16px 16px;
+      background: linear-gradient(180deg, rgba(255, 255, 255, 0.92) 0%, rgba(255, 255, 255, 0) 100%);
+      pointer-events: none; text-align: center;
+    }
+    #topbar.is-hidden { display: none; }
+    .brand-name {
+      font-weight: 700; letter-spacing: 0.28em;
+      font-size: clamp(1rem, 4.2vw, 1.45rem); color: var(--ink);
+    }
+    .brand-sub {
+      font-size: clamp(0.72rem, 2.7vw, 0.9rem); color: var(--green-mid);
+    }
+
+    /* ---- Near-fullscreen site popup (shown on pin select outside VR) ---- */
+    #site-popup {
+      position: fixed; inset: 0; z-index: 10002;
+      display: flex; flex-direction: column;
+    }
+    #site-popup.is-hidden { display: none; }
+    .sp-backdrop {
+      position: absolute; inset: 0;
+      background: radial-gradient(ellipse at 50% 18%, #FFFFFF 0%, #F3F6F0 58%, #E9EEE4 100%);
+    }
+    /* The nav floats OVER the fullscreen video, holding only the close button
+       (top-right). pointer-events:none lets taps reach the video controls;
+       the close button re-enables them for itself. */
+    .sp-nav {
+      position: absolute; top: 0; left: 0; right: 0; z-index: 3;
+      display: flex; align-items: center; justify-content: flex-end;
+      padding: max(16px, env(safe-area-inset-top)) clamp(16px, 4vw, 44px) 6px;
+      pointer-events: none;
+    }
+    /* Brand logo is "top text" — hidden so the video plays fullscreen. */
+    .sp-logo { display: none; }
+    .sp-close {
+      pointer-events: auto;
+      display: flex; align-items: center; justify-content: center;
+      width: 56px; height: 46px; border-radius: 999px; cursor: pointer;
+      font-size: 1.5rem; line-height: 1; color: #FFFFFF;
+      background: rgba(0, 0, 0, 0.45);
+      border: 1px solid rgba(255, 255, 255, 0.35);
+      backdrop-filter: blur(4px); transition: background .15s ease;
+    }
+    .sp-close:hover { background: rgba(0, 0, 0, 0.65); }
+    /* Body fills the whole popup; the video wrap is stretched to the viewport. */
+    .sp-body {
+      position: relative; z-index: 2; flex: 1; min-height: 0;
+      display: flex; flex-direction: column; align-items: center; justify-content: center;
+      padding: 0; text-align: center;
+    }
+    /* Title ("top text") and description ("bottom text") are hidden so the
+       video takes the whole screen when a site opens. */
+    .sp-title { display: none; }
+    .sp-video-wrap {
+      position: absolute; inset: 0;
+      width: 100%; height: 100%;
+      overflow: hidden; background: #000;
+    }
+    .sp-video { width: 100%; height: 100%; display: block; object-fit: contain; background: #000; }
+    .sp-desc { display: none; }
+
+    /* Secondary button look (Reset View). */
+    .vr-btn--secondary {
+      background: rgba(19, 32, 25, 0.06); color: var(--ink);
+      border: 1px solid rgba(19, 32, 25, 0.22); box-shadow: none;
+      backdrop-filter: blur(4px);
+    }
+    .vr-btn--secondary:hover { background: rgba(19, 32, 25, 0.12); }
+    /* Reset View — top-right, sits BELOW the language selector so the two
+       top-right HUD controls never overlap. Clear of the notch / safe area. */
+    #reset-view-btn {
+      position: fixed; z-index: 10000;
+      top: calc(max(14px, env(safe-area-inset-top)) + 54px);
+      right: max(14px, env(safe-area-inset-right));
+      min-width: auto; min-height: 44px; padding: 10px 18px;
+    }
+
+    /* Language selector — top-RIGHT corner, dark-green theme matching .vr-btn.
+       Native <select> styled to look like the brand pill buttons, with a
+       cream chevron drawn via an inline SVG data URI (no external asset).
+       Behaves like the top bar / Enter VR: hidden before start and in VR. */
+    #lang-select {
+      position: fixed; z-index: 10000;
+      top: max(14px, env(safe-area-inset-top)); right: max(14px, env(safe-area-inset-right));
+      min-height: 44px; padding: 10px 40px 10px 18px;
+      border: none; border-radius: 999px; cursor: pointer;
+      font-family: inherit; font-size: clamp(0.9rem, 3.6vw, 1rem);
+      font-weight: 600; letter-spacing: 0.01em;
+      color: var(--cream); background-color: var(--green);
+      box-shadow: 0 6px 22px rgba(0, 78, 0, 0.45);
+      -webkit-appearance: none; -moz-appearance: none; appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1l5 5 5-5' fill='none' stroke='%23FAF8F0' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+      background-repeat: no-repeat; background-position: right 16px center; background-size: 12px 8px;
+      touch-action: manipulation; transition: background-color .15s ease;
+    }
+    #lang-select:hover { background-color: var(--green-mid); }
+    #lang-select:active { transform: scale(0.97); }
+    #lang-select.is-hidden { display: none; }
+    /* The native option list can't inherit the pill styling; keep it readable. */
+    #lang-select option { color: var(--ink); background: var(--cream); }
+
+    /* The shared <video> texture source. Kept tiny + off-screen (NOT
+       display:none, so the browser keeps decoding frames for WebGL). */
+    #pinVideo {
+      position: fixed; top: 0; left: 0; width: 2px; height: 2px;
+      opacity: 0; pointer-events: none; z-index: -1;
+    }
+  </style>
+
+  <script>
+    /* ================================================================
+     * SECTION 1 — CONFIGURATION
+     * One place for every tunable value.
+     * ================================================================ */
+    const CONFIG = {
+      // Gaze (fuse) dwell-to-activate.
+      gaze: { fuseTimeout: 1500 },
+
+      // Mobile / Cardboard tuning.
+      mobile: {
+        // Camera distance for the fuse reticle (metres in front of the camera).
+        cursorDistance: 1.2,
+        // look-controls: drag-to-look on touch screens (desktop mouse still works).
+        touchLookEnabled: true,
+        // Device-orientation "magic window" before entering VR.
+        magicWindowEnabled: true
+      },
+
+      // Colour palette — matched to madinah.nimapinfotech.com
+      // (deep green #004E00 accent, cream #FAF8F0, gray map #CCCCCC, white bg).
+      colors: {
+        cursor:         '#FF6B00',  // orange reticle — reads on the gray map AND white bg
+        cursorProgress: '#FFD166',  // amber dwell fill
+        mapFallback:    '#CCCCCC',  // gray board before/if the SVG can't load
+        tagBg:          '#004E00',  // green name-tag background
+        tagText:        '#FAF8F0',  // cream name-tag text
+        frame:          '#FFFFFF'   // white frame behind the map
+      },
+
+      // ---- The MAP: a single SVG image (assets/map.svg) ----
+      // The map is one textured plane. Pins are placed with normalized
+      // (u, v) coordinates over the image (see PIN_DATA), so swapping the
+      // artwork is just: drop in a new SVG + nudge each pin's u/v.
+      map: {
+        src:      'assets/map.svg',  // rasterized onto the board by `svg-map`
+        height:   5.0,               // board height in world units (fills ~90% of view)
+        aspect:   372 / 400,         // SVG viewBox width / height (portrait)
+        position: '0 1.6 -3.4'       // board centre — eye level, pulled closer
+      },
+
+      // Flat map-marker dimensions (green teardrop billboard).
+      pin: { width: 0.1875, height: 0.236, hoverScale: 1.2, zOffset: 0.06 },
+
+      // ---- The in-VR video screen ----
+      // When a pin opens inside VR, the video screen is HEAD-LOCKED: it is
+      // parented to the camera and sits a fixed distance straight ahead, so it
+      // stays welded to the view and never moves or drifts as the head turns.
+      //   screenDistance — how far ahead of the eyes the screen is locked (m).
+      //   screenScale    — uniform magnification so the video fills most of the
+      //                    field of view.
+      vr: { screenDistance: 2.3, screenScale: 1.6 }
+    };
+
+    /* ================================================================
+     * LANGUAGE STATE
+     * The single source of truth for the UI language. It drives which
+     * per-pin video plays (see each pin's `videos` map + videoForLanguage).
+     *
+     * SCALABILITY: to add a language you only ever touch two places —
+     *   1) add an <option value="..."> to #lang-select in the markup, and
+     *   2) add a matching key to every pin's `videos` map below.
+     * Nothing else in this file needs to change. The value here must match
+     * the <option> values and the `videos` keys (e.g. 'english').
+     * (Declared with `let` because the dropdown reassigns it at runtime.)
+     * ================================================================ */
+    let currentLanguage = 'english';
+
+    /* ================================================================
+     * SECTION 2 — PIN DATA
+     * The single source of truth. Each pin is placed by a normalized
+     * position over the map image, so it's independent of the artwork.
+     * Add/remove/move entries here and the scene rebuilds itself.
+     *
+     *   id, title, description   — content
+     *   u, v                     — position on the map image (0..1):
+     *                              u = 0 left → 1 right, v = 0 top → 1 bottom
+     *   marker                   — designed marker asset: marker1 (mosque) |
+     *                              marker2 (shrine) | marker3 (mountain)
+     *   videos                   — per-language clip paths, keyed by the
+     *                              language value used in #lang-select /
+     *                              currentLanguage. The selected language is
+     *                              played; a missing key (or a missing file at
+     *                              runtime) transparently falls back to English.
+     *
+     * NOTE: u/v are tuned to sit over Madinah on assets/map.svg and spread
+     * a little wider than the flat design so each marker is easy to GAZE-
+     * select in VR. Nudge them to tighten the cluster to match exactly.
+     * ================================================================ */
+    const PIN_DATA = [
+      // {
+      //   id: 'uhud',
+      //   title: 'Mount Uhud',
+      //   description: 'The largest mountain in Madinah and site of the historic Battle of Uhud in 625 CE.',
+      //   marker: 'marker3', // mountain
+      //   u: 0.49, v: 0.46,   // NORTH of the city
+      //   videos: {
+      //     english:    'assets/videos/en/uhud.mp4',
+      //     arabic:     'assets/videos/ar/uhud.mp4',
+      //     indonesian: 'assets/videos/id/uhud.mp4'
+      //   }
+      // },
+      {
+        id: 'nabawi',
+        // title: 'Al-Masjid an-Nabawi',
+        // description: "The Prophet's Mosque - the second-holiest site in Islam, established in 622 CE.",
+        marker: 'marker1', // mosque
+        u: 0.51, v: 0.63,   // city centre (west of Baqi)
+        videos: {
+          english:    'assets/videos/en/nabawi.mp4',
+          arabic:     'assets/videos/ar/nabawi.mp4',
+          indonesian: 'assets/videos/id/nabawi.mp4'
+        }
+      },
+      // {
+      //   id: 'baqi',
+      //   title: 'Jannat al-Baqi',
+      //   description: 'The principal cemetery of Madinah, resting place of many companions and family of the Prophet.',
+      //   marker: 'marker2', // shrine
+      //   u: 0.55, v: 0.63,   // adjacent to the Prophet's Mosque (just east)
+      //   videos: {
+      //     english:    'assets/videos/en/baqi.mp4',
+      //     arabic:     'assets/videos/ar/baqi.mp4',
+      //     indonesian: 'assets/videos/id/baqi.mp4'
+      //   }
+      // },
+      {
+        id: 'quba',
+        // title: 'Quba Mosque',
+        // description: 'The first mosque built in Islam. The Prophet (pbuh) said praying here equals the reward of an Umrah.',
+        marker: 'marker1', // mosque
+        u: 0.44, v: 0.58,   // SOUTH of the city
+        videos: {
+          english:    'assets/videos/en/quba.mp4',
+          arabic:     'assets/videos/ar/quba.mp4',
+          indonesian: 'assets/videos/id/quba.mp4'
+        }
+      }
+    ];
+
+    /* ================================================================
+     * SECTION 3 — HELPER FUNCTIONS
+     * ================================================================ */
+
+    /**
+     * Resolve a pin's video path for a language, with graceful fallback.
+     *   1) the requested language, else
+     *   2) English (the guaranteed baseline), else
+     *   3) '' (no video).
+     * This reads whatever keys the `videos` map happens to have, so adding a
+     * new language never requires editing this function. (A missing FILE at
+     * runtime — e.g. a 404 — is handled separately by the <video> error
+     * handler, which also falls back to English.)
+     */
+    function videoForLanguage(data, lang) {
+      const videos = (data && data.videos) || {};
+      return videos[lang] || videos.english || '';
+    }
+
+    // "x y z" string -> THREE.Vector3.
+    function parseVec3(str) {
+      const [x, y, z] = str.trim().split(/\s+/).map(Number);
+      return new AFRAME.THREE.Vector3(x, y, z);
+    }
+    function vec3ToStr(v) { return `${v.x} ${v.y} ${v.z}`; }
+
+    // Creates a perfect rounded rectangle entity using 3 planes and 4 quarter-circles to avoid SVG texture bugs
+    function createRoundedRect(w, h, r, color, opacity) {
+      if (opacity === undefined) opacity = 1.0;
+      const container = document.createElement('a-entity');
+      const mat = `color: ${color}; shader: flat; transparent: ${opacity < 1}; opacity: ${opacity}; side: double`;
+
+      const center = document.createElement('a-entity');
+      center.setAttribute('geometry', `primitive: plane; width: ${w - 2*r}; height: ${h}`);
+      center.setAttribute('material', mat);
+      container.appendChild(center);
+
+      const left = document.createElement('a-entity');
+      left.setAttribute('geometry', `primitive: plane; width: ${r}; height: ${h - 2*r}`);
+      left.setAttribute('material', mat);
+      left.setAttribute('position', `${-(w - r)/2} 0 0`);
+      container.appendChild(left);
+
+      const right = document.createElement('a-entity');
+      right.setAttribute('geometry', `primitive: plane; width: ${r}; height: ${h - 2*r}`);
+      right.setAttribute('material', mat);
+      right.setAttribute('position', `${(w - r)/2} 0 0`);
+      container.appendChild(right);
+
+      const corners = [
+        { pos: [ (w/2 - r),  (h/2 - r)], start: 0 },
+        { pos: [-(w/2 - r),  (h/2 - r)], start: 90 },
+        { pos: [-(w/2 - r), -(h/2 - r)], start: 180 },
+        { pos: [ (w/2 - r), -(h/2 - r)], start: 270 }
+      ];
+      
+      corners.forEach(c => {
+        const corner = document.createElement('a-entity');
+        corner.setAttribute('geometry', `primitive: circle; radius: ${r}; thetaStart: ${c.start}; thetaLength: 90; segments: 16`);
+        corner.setAttribute('material', mat);
+        corner.setAttribute('position', `${c.pos[0]} ${c.pos[1]} 0`);
+        container.appendChild(corner);
+      });
+
+      return container;
+    }
+
+    /* ================================================================
+     * SECTION 3b — MOBILE / VR BOOTSTRAP
+     * Permission requests, video unlock, and UI orchestration.
+     * ================================================================ */
+
+    // Global flags set on first user gesture (required by mobile browsers).
+    window.VR_MAP_EXPERIENCE_STARTED = false;
+    window.VR_MAP_VIDEO_UNLOCKED = false;
+
+    /** True when the primary pointer is coarse (phones/tablets). */
+    function isTouchPrimaryDevice() {
+      return window.matchMedia('(pointer: coarse)').matches;
+    }
+
+    /** Apply mobile look-controls settings from CONFIG onto the camera rig. */
+    function applyMobileCameraSettings(sceneEl) {
+      const cam = sceneEl.querySelector('#rig');
+      if (!cam) return;
+      const m = CONFIG.mobile;
+      cam.setAttribute('look-controls', {
+        touchEnabled: m.touchLookEnabled,
+        magicWindowTrackingEnabled: m.magicWindowEnabled,
+        pointerLockEnabled: false
+      });
+    }
+
+    /**
+     * iOS 13+ requires an explicit permission prompt for device orientation.
+     * Android Chrome generally grants orientation without a prompt.
+     */
+    async function requestMotionPermission() {
+      if (typeof DeviceOrientationEvent === 'undefined') return false;
+
+      if (typeof DeviceOrientationEvent.requestPermission === 'function') {
+        try {
+          const state = await DeviceOrientationEvent.requestPermission();
+          return state === 'granted';
+        } catch (err) {
+          console.warn('Device orientation permission denied:', err);
+          return false;
+        }
+      }
+      // No prompt API — typical on Android.
+      return true;
+    }
+
+    /**
+     * Unlock BOTH video elements for AUDIBLE playback. MUST run inside a real
+     * user gesture (the Start tap) and BEFORE any `await`, or the gesture is
+     * consumed. We briefly play each element unmuted at volume 0 (silent) then
+     * pause — this "blesses" the element so later gaze-triggered plays can have
+     * sound in VR and on the web without a fresh gesture each time.
+     */
+    function unlockVideos() {
+      if (window.VR_MAP_VIDEO_UNLOCKED) return;
+      window.VR_MAP_VIDEO_UNLOCKED = true;
+      // Any real clip works to "bless" the elements for audible playback;
+      // grab the first pin's clip in the current language (with fallback).
+      const firstPin = PIN_DATA.find((p) => videoForLanguage(p, currentLanguage));
+      const firstVideo = firstPin ? videoForLanguage(firstPin, currentLanguage) : '';
+      document.querySelectorAll('#pinVideo, #popup-video').forEach((v) => {
+        // The popup video has no src until a pin opens — give it one now so
+        // play() can bless it (it's replaced when a pin is actually selected).
+        if (!v.getAttribute('src') && firstVideo) v.setAttribute('src', firstVideo);
+        v.muted = false;
+        const vol = v.volume;
+        v.volume = 0;                       // silence the priming blip
+        const p = v.play();
+        if (p && p.then) {
+          p.then(() => { v.pause(); v.currentTime = 0; v.volume = vol; })
+           .catch(() => { /* stay flagged; real play happens on pin select */ });
+        }
+      });
+    }
+
+    /**
+     * Recenter the view ("Reset View").
+     * look-controls keeps applying the live device orientation every frame,
+     * so we can't just zero the camera's rotation. Instead we rotate the
+     * PARENT recenter-rig by the negative of the camera's current world yaw,
+     * which makes wherever the user is currently looking become "forward"
+     * (i.e. the map snaps back in front of them). Pitch/roll are left alone.
+     */
+    function recenterView(sceneEl) {
+      const cam = sceneEl.querySelector('#rig');
+      const rig = sceneEl.querySelector('#recenter-rig');
+      if (!cam || !rig) return;
+
+      const THREE = AFRAME.THREE;
+      const q = new THREE.Quaternion();
+      cam.object3D.getWorldQuaternion(q);                 // current head orientation
+      const euler = new THREE.Euler().setFromQuaternion(q, 'YXZ');
+      rig.object3D.rotation.y -= euler.y;                 // cancel current heading
+    }
+
+    /** Wire Start / Enter VR overlays and scene VR lifecycle events. */
+    function setupExperienceUI(sceneEl) {
+      const startOverlay = document.getElementById('start-overlay');
+      const startBtn     = document.getElementById('start-btn');
+      const enterVrBtn   = document.getElementById('enter-vr-btn');
+      const resetBtn     = document.getElementById('reset-view-btn');
+      const topbar       = document.getElementById('topbar');
+      const langSelect   = document.getElementById('lang-select');
+
+      const setChromeVisible = (visible) => topbar.classList.toggle('is-hidden', !visible);
+
+      // Hide 2D HUD while in immersive VR; restore when exiting.
+      sceneEl.addEventListener('enter-vr', () => {
+        console.log('[VR] ✅ enter-vr event fired — now in VR. is(vr-mode)=', sceneEl.is('vr-mode'),
+                    'isMobile=', sceneEl.isMobile, 'XRSession=', sceneEl.xrSession);
+        enterVrBtn.classList.add('is-hidden');
+        resetBtn.classList.add('is-hidden');
+        langSelect.classList.add('is-hidden');
+        setChromeVisible(false);
+      });
+      sceneEl.addEventListener('exit-vr', () => {
+        console.log('[VR] ↩️ exit-vr event fired — left VR. is(vr-mode)=', sceneEl.is('vr-mode'));
+        if (window.VR_MAP_EXPERIENCE_STARTED) {
+          enterVrBtn.classList.remove('is-hidden');
+          resetBtn.classList.remove('is-hidden');
+          langSelect.classList.remove('is-hidden');
+        }
+        setChromeVisible(true);
+      });
+
+      // Reset View — recenter the camera to face the map again.
+      resetBtn.addEventListener('click', () => recenterView(sceneEl));
+
+      // Language selector: reflect the default, then on change update the
+      // global state and hot-swap any OPEN popup's video (no page reload).
+      // The popup itself (title/description/visibility) is left untouched —
+      // vr-map-app.switchLanguage() only re-points the video.
+      langSelect.value = currentLanguage;
+      langSelect.addEventListener('change', () => {
+        currentLanguage = langSelect.value;
+        const app = sceneEl.components['vr-map-app'];
+        if (app && app.switchLanguage) app.switchLanguage();
+      });
+
+      startBtn.addEventListener('click', async () => {
+        startBtn.disabled = true;
+
+        // 1) Unlock audio FIRST, while we still hold the user gesture (before
+        //    any await — an await would consume the gesture).
+        unlockVideos();
+
+        // 2) Motion/orientation (Cardboard head tracking).
+        await requestMotionPermission();
+
+        // 3) Bootstrap scene content (map, pins, panel).
+        window.VR_MAP_EXPERIENCE_STARTED = true;
+        sceneEl.emit('experience-started');
+
+        // 4) Reveal HUD; remove the start gate.
+        startOverlay.classList.add('is-hidden');
+        enterVrBtn.classList.remove('is-hidden');
+        resetBtn.classList.remove('is-hidden');
+        langSelect.classList.remove('is-hidden');
+        setChromeVisible(true);
+      });
+
+      enterVrBtn.addEventListener('click', () => {
+        console.log('[VR] 🟢 Enter VR clicked. secureContext=', window.isSecureContext,
+                    'origin=', location.origin, 'already in vr-mode=', sceneEl.is('vr-mode'));
+
+        // Probe capabilities (async — runs alongside, does NOT block enterVR so
+        // the user-gesture that WebXR requires is preserved).
+        logVrSupport();
+
+        if (sceneEl.is('vr-mode')) { console.log('[VR] Already in vr-mode; ignoring click.'); return; }
+
+        // enterVR() MUST be called synchronously inside the click (user gesture).
+        let enter;
+        try {
+          enter = sceneEl.enterVR();
+        } catch (err) {
+          console.error('[VR] ❌ sceneEl.enterVR() threw synchronously:', err);
+          return;
+        }
+        console.log('[VR] sceneEl.enterVR() invoked, returned:', enter);
+
+        if (enter && enter.then) {
+          enter
+            .then(() => console.log('[VR] ✅ enterVR() promise resolved (session starting).'))
+            .catch((err) => {
+              // THIS is the real reason Enter VR "does nothing" — log the full error.
+              console.error('[VR] ❌ enterVR() promise REJECTED. Reason:',
+                            (err && (err.name + ': ' + err.message)) || err, '\nFull error object:', err);
+              const msg = isTouchPrimaryDevice()
+                ? 'VR mode unavailable on this device/browser. (See the [VR] error above — often: no WebXR immersive-vr support, e.g. iOS Safari, or no headset.)'
+                : 'VR mode is not available in this browser (no WebXR headset session).';
+              console.warn('[VR] ' + msg);
+            });
+        } else {
+          console.warn('[VR] enterVR() did not return a promise — likely nothing happened (no WebXR support / no headset).');
+        }
+      });
+    }
+
+    /**
+     * Diagnostic: log everything relevant to whether "Enter VR" can work.
+     * Read this in the dev-tunnel console after tapping Enter VR.
+     */
+    function logVrSupport() {
+      const d = (window.AFRAME && AFRAME.utils && AFRAME.utils.device) || {};
+      console.log('[VR] userAgent:', navigator.userAgent);
+      console.log('[VR] window.isSecureContext (HTTPS required for WebXR):', window.isSecureContext);
+      console.log('[VR] navigator.xr present:', !!navigator.xr);
+      try {
+        console.log('[VR] A-Frame device — isMobile:', d.isMobile && d.isMobile(),
+                    '| isMobileVR:', d.isMobileVR && d.isMobileVR(),
+                    '| checkHeadsetConnected:', d.checkHeadsetConnected && d.checkHeadsetConnected());
+      } catch (e) { console.warn('[VR] device-util probe failed:', e); }
+
+      if (navigator.xr && navigator.xr.isSessionSupported) {
+        navigator.xr.isSessionSupported('immersive-vr')
+          .then((ok) => console.log('[VR] navigator.xr.isSessionSupported("immersive-vr") =>', ok,
+                                    ok ? '(headset VR available)' : '(NO immersive-vr — Enter VR will reject)'))
+          .catch((err) => console.warn('[VR] isSessionSupported("immersive-vr") threw:', err));
+      } else {
+        console.warn('[VR] ❗ WebXR (navigator.xr) is NOT available in this browser. ' +
+                     'Dev tunnels serve HTTPS (good), so this is a browser/device limit — ' +
+                     'e.g. iOS Safari has no WebXR at all. Note: A-Frame 1.7 has NO built-in ' +
+                     'cardboard-stereo fallback, so Enter VR needs real WebXR immersive-vr support.');
+      }
+    }
+
+    // Defer UI wiring until the scene is ready.
+    document.addEventListener('DOMContentLoaded', () => {
+      const sceneEl = document.querySelector('a-scene');
+      const onReady = () => {
+        const videoEl = document.getElementById('pinVideo');
+        if (videoEl) {
+          // Extra iOS inline-playback flags (in addition to HTML attributes).
+          videoEl.playsInline = true;
+          videoEl.setAttribute('playsinline', '');
+          videoEl.setAttribute('webkit-playsinline', '');
+        }
+        applyMobileCameraSettings(sceneEl);
+        setupExperienceUI(sceneEl);
+      };
+      if (sceneEl.hasLoaded) onReady();
+      else sceneEl.addEventListener('loaded', onReady);
+    });
+
+    /* ================================================================
+     * SECTION 4 — INTERACTION HANDLERS (A-Frame components)
+     *   map-pin    : per-pin visuals + emits `pin:select`
+     *   vr-map-app : scene orchestrator (map, pins, panel, video)
+     * ================================================================ */
+
+    /**
+     * svg-map — robustly textures a plane with the map image.
+     * It rasterizes the SVG onto a canvas at a fixed resolution and applies
+     * that as a CanvasTexture. This sidesteps the common "SVG shows up blank
+     * as a WebGL texture" problem. If the pixels can't be read (e.g. the page
+     * was opened via file://, which taints the canvas), it logs a clear hint
+     * and leaves the plane's fallback colour so the board is never invisible.
+     */
+    AFRAME.registerComponent('svg-map', {
+      schema: { src: { type: 'string' }, resolution: { default: 1200 } },
+
+      init: function () {
+        const img = new Image();
+        // Prefer the embedded data URI (window.MAP_SVG_DATAURI from
+        // assets/map-data.js): a data: URL never taints the canvas, so the
+        // map renders even from file:// with no CORS. Fall back to the plain
+        // file URL if the embed script wasn't loaded. (No crossOrigin — that
+        // would force a CORS check that fails on file:// / header-less servers.)
+        img.onload = () => this.applyTexture(img);
+        img.onerror = () => console.error('[svg-map] Could not load map image:', this.data.src);
+        img.src = window.MAP_SVG_DATAURI || this.data.src;
+      },
+
+      applyTexture: function (img) {
+        const mesh = this.el.getObject3D('mesh');
+        if (!mesh) {                       // geometry not ready yet — wait for it
+          this.el.addEventListener('object3dset', () => this.applyTexture(img), { once: true });
+          return;
+        }
+        const THREE = AFRAME.THREE;
+        const w = this.data.resolution;
+        const h = Math.round(w * (img.naturalHeight || img.height) / (img.naturalWidth || img.width));
+        const canvas = document.createElement('canvas');
+        canvas.width = w; canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, w, h);
+
+        // getImageData throws synchronously if the canvas is tainted (file://).
+        try {
+          ctx.getImageData(0, 0, 1, 1);
+        } catch (e) {
+          console.error('[svg-map] Map texture blocked because the canvas is tainted. ' +
+            'Serve the app over http://localhost (not file://). Showing fallback colour for now.');
+          return;
+        }
+
+        const tex = new THREE.CanvasTexture(canvas);
+        if ('colorSpace' in tex) tex.colorSpace = THREE.SRGBColorSpace;
+        tex.anisotropy = 4;
+        mesh.material.map = tex;
+        // Reset the fallback tint to white so the texture shows true colours.
+        if (mesh.material.color) mesh.material.color.set('#ffffff');
+        mesh.material.transparent = true;   // let transparent SVG areas show the frame
+        mesh.material.needsUpdate = true;
+      }
+    });
+
+    /**
+     * map-pin — on each pin HEAD. Owns hover/active visuals and the
+     * reveal-on-hover name tag. Announces selection via a bubbling event.
+     */
+    AFRAME.registerComponent('map-pin', {
+      schema: {
+        pinId:       { type: 'string' },
+        title:       { type: 'string' },
+        description: { type: 'string' }
+        // The per-language `videos` map isn't a schema field (A-Frame schemas
+        // are flat strings). The full pin entry is stashed on the element as
+        // `el.__pinData` in createPin and emitted on select — see onClick.
+      },
+
+      init: function () {
+        this.active = false;
+        // The name tag is a sibling under the same pin wrapper.
+        this.tagEl = this.el.parentEl.querySelector('.pin-tag');
+
+        this.onEnter = this.onEnter.bind(this);
+        this.onLeave = this.onLeave.bind(this);
+        this.onClick = this.onClick.bind(this);
+
+        // Fired by the center gaze fuse (1.5s dwell) OR a tap/click on the reticle.
+        this.el.addEventListener('mouseenter', this.onEnter);
+        this.el.addEventListener('mouseleave', this.onLeave);
+        this.el.addEventListener('click', this.onClick);
+      },
+
+      remove: function () {
+        this.el.removeEventListener('mouseenter', this.onEnter);
+        this.el.removeEventListener('mouseleave', this.onLeave);
+        this.el.removeEventListener('click', this.onClick);
+      },
+
+      onEnter: function () { this.showTag(true); },
+
+      onLeave: function () { if (!this.active) this.showTag(false); },
+
+      onClick: function () {
+        // Emit the FULL pin entry (incl. the per-language `videos` map),
+        // falling back to the flat schema data if it wasn't stashed.
+        const data = this.el.__pinData || this.data;
+        this.el.emit('pin:select', { pinEl: this.el, data: data }, true);
+      },
+
+      showTag: function (visible) {
+        if (this.tagEl) this.tagEl.setAttribute('visible', visible);
+      },
+
+      // Called by the app when this pin's panel opens / closes. The marker
+      // keeps its designed look; the name tag (and the open panel) signal
+      // which pin is active.
+      setActive: function (isActive) {
+        this.active = isActive;
+        this.showTag(isActive);
+      }
+    });
+
+    /**
+     * vr-map-app — on <a-scene>. The orchestrator.
+     */
+    AFRAME.registerComponent('vr-map-app', {
+      init: function () {
+        this.sceneEl    = this.el;
+        this.cursorEl   = this.sceneEl.querySelector('#cursor');
+        this.progressEl = this.sceneEl.querySelector('#cursor-progress');
+        this.videoEl    = document.querySelector('#pinVideo');
+        this.currentPin = null;
+        this.currentData = null;   // full entry of the pin whose popup is open
+        this.bootstrapped = false;
+
+        this.applyCursorConfig();
+        this.setupOverlay();
+
+        // Heavy scene build waits for the user's first tap (permissions + unlock).
+        const bootstrap = () => {
+          if (this.bootstrapped) return;
+          this.bootstrapped = true;
+          this.buildMap();
+          this.buildPins();
+          this.buildPanel();
+          this.wireEvents();
+        };
+
+        if (window.VR_MAP_EXPERIENCE_STARTED) bootstrap();
+        else this.sceneEl.addEventListener('experience-started', bootstrap, { once: true });
+      },
+
+      /* ---- Cursor / gaze dwell feedback ---- */
+      applyCursorConfig: function () {
+        const dur = CONFIG.gaze.fuseTimeout;
+        const dist = CONFIG.mobile.cursorDistance;
+
+        this.cursorEl.setAttribute('position', `0 0 -${dist}`);
+        this.cursorEl.setAttribute('cursor', 'fuseTimeout', dur);
+        this.cursorEl.setAttribute('material', 'color', CONFIG.colors.cursor);
+        this.progressEl.setAttribute('material', 'color', CONFIG.colors.cursorProgress);
+
+        // Force the reticle to draw ON TOP of the map/pins/panel. In 3D the
+        // "z-index" is renderOrder: a high value makes it paint last, and
+        // depthTest:false (also set in markup) stops geometry from occluding it.
+        [this.cursorEl, this.progressEl].forEach((el) => {
+          const bringToFront = () => {
+            const mesh = el.getObject3D('mesh');
+            if (!mesh) { el.addEventListener('object3dset', bringToFront, { once: true }); return; }
+            mesh.renderOrder = 10000;
+            if (mesh.material) { mesh.material.depthTest = false; mesh.material.depthWrite = false; }
+          };
+          bringToFront();
+        });
+
+        const startFill = () => this.progressEl.setAttribute('animation__fill',
+          `property: scale; from: 0 0 0; to: 1 1 1; dur: ${dur}; easing: linear`);
+        const resetFill = () => {
+          this.progressEl.removeAttribute('animation__fill');
+          this.progressEl.object3D.scale.set(0, 0, 0);
+        };
+        this.cursorEl.addEventListener('mouseenter', startFill);
+        this.cursorEl.addEventListener('mouseleave', resetFill);
+        this.cursorEl.addEventListener('click', resetFill);
+      },
+
+      /* ---- Build the map board (single assets/map.svg plane) ---- */
+      buildMap: function () {
+        const m = CONFIG.map;
+        const boardPos = parseVec3(m.position);
+        const height = m.height;
+        const width  = height * m.aspect;     // keep the SVG's aspect ratio
+
+        // Stored so pin placement (this.toBoard) can map u/v -> world.
+        this.board = { pos: boardPos, width: width, height: height };
+
+        const board = document.createElement('a-entity');
+        board.setAttribute('id', 'map-board');
+
+        // Decorative frame behind the map.
+        const frame = document.createElement('a-entity');
+        frame.setAttribute('geometry', `primitive: plane; width: ${width + 0.25}; height: ${height + 0.25}`);
+        frame.setAttribute('material', `color: ${CONFIG.colors.frame}; shader: flat; side: double`);
+        frame.setAttribute('position', `${boardPos.x} ${boardPos.y} ${boardPos.z - 0.03}`);
+        board.appendChild(frame);
+
+        // The map itself: one plane. It starts as a flat gray (matching the
+        // site's map regions) and the svg-map component paints assets/map.svg
+        // onto it once loaded. shader: flat keeps the artwork unlit.
+        const mapPlane = document.createElement('a-entity');
+        mapPlane.setAttribute('geometry', `primitive: plane; width: ${width}; height: ${height}`);
+        mapPlane.setAttribute('material', `color: ${CONFIG.colors.mapFallback}; shader: flat; side: front`);
+        mapPlane.setAttribute('svg-map', `src: ${m.src}`);
+        mapPlane.setAttribute('position', vec3ToStr(boardPos));
+        board.appendChild(mapPlane);
+
+        this.sceneEl.appendChild(board);
+        this.boardEl = board;
+      },
+
+      // Normalized image coords (u,v) -> world position on the board surface.
+      // u: 0 = left, 1 = right.  v: 0 = top, 1 = bottom.
+      toBoard: function (u, v) {
+        const b = this.board;
+        return new AFRAME.THREE.Vector3(
+          b.pos.x + (u - 0.5) * b.width,
+          b.pos.y + (0.5 - v) * b.height,
+          b.pos.z
+        );
+      },
+
+      /* ---- Generate every pin from PIN_DATA ---- */
+      buildPins: function () {
+        const container = document.createElement('a-entity');
+        container.setAttribute('id', 'pins');
+        PIN_DATA.forEach((data) => container.appendChild(this.createPin(data)));
+        this.sceneEl.appendChild(container);
+        this.pinsEl = container;
+      },
+
+      // A flat map-style marker: a green teardrop + white icon that points at
+      // its (u,v) spot on the board. The marker plane is the gaze target;
+      // hovering scales it, and activating swaps it to the highlight colour.
+      createPin: function (data) {
+        const P = CONFIG.pin, C = CONFIG.colors;
+        const base = this.toBoard(data.u, data.v); // location on the board
+
+        const wrapper = document.createElement('a-entity');
+        wrapper.setAttribute('position', vec3ToStr(base));
+
+        // Lift the marker so the teardrop TIP lands on the exact point.
+        const yOff = P.height * 0.45;
+
+        const marker = document.createElement('a-entity');
+        marker.setAttribute('class', 'clickable');
+        marker.setAttribute('geometry', `primitive: plane; width: ${P.width}; height: ${P.height}`);
+        // Use the designed marker asset (embedded data URI, taint-free).
+        // The plane's aspect (0.36:0.45 ≈ 0.8) matches the SVGs (127:159).
+        const markerSrc = (window.MARKER_SVGS && window.MARKER_SVGS[data.marker]) || '';
+        marker.setAttribute('material', {
+          shader: 'flat', src: markerSrc, transparent: true, side: 'double'
+        });
+        marker.setAttribute('position', `0 ${yOff} ${P.zOffset}`);
+        marker.setAttribute('map-pin', {
+          pinId: data.id, title: data.title, description: data.description
+        });
+        // Stash the full entry (incl. the per-language `videos` map) so the
+        // pin:select event can carry it — see map-pin.onClick.
+        marker.__pinData = data;
+        const hs = P.hoverScale;
+        marker.setAttribute('animation__hoverin',
+          `property: scale; to: ${hs} ${hs} ${hs}; startEvents: mouseenter; dur: 150; easing: easeOutQuad`);
+        marker.setAttribute('animation__hoverout',
+          `property: scale; to: 1 1 1; startEvents: mouseleave; dur: 150; easing: easeOutQuad`);
+        wrapper.appendChild(marker);
+
+        // Name tag (revealed on hover / while active), floated above the marker.
+        const tag = document.createElement('a-entity');
+        tag.setAttribute('class', 'pin-tag');
+        tag.setAttribute('visible', false);
+        tag.setAttribute('position', `0 ${yOff + P.height / 2 + 0.14} ${P.zOffset + 0.01}`);
+        const tagBg = document.createElement('a-entity');
+        tagBg.setAttribute('geometry', 'primitive: plane; width: 1.7; height: 0.3');
+        tagBg.setAttribute('material', `color: ${C.tagBg}; shader: flat; opacity: 0.9; transparent: true`);
+        tag.appendChild(tagBg);
+        const tagText = document.createElement('a-entity');
+        tagText.setAttribute('text', {
+          value: data.title, color: C.tagText, align: 'center', anchor: 'center',
+          width: 2.6, wrapCount: 22
+        });
+        tagText.setAttribute('position', '0 0 0.01');
+        tag.appendChild(tagText);
+        wrapper.appendChild(tag);
+
+        return wrapper;
+      },
+
+      /* ---- The single shared info panel (title + VIDEO + description) ---- */
+      buildPanel: function () {
+        // FLAT video screen: just the clip — NO card, shadow, border or frame —
+        // so in the VR split-screen it reads as a plain flat screen instead of
+        // a floating 3D panel. Sized off the 16:9 video; showVrPanel drops it
+        // into fixed world space and CONFIG.vr.screenScale blows it up to fill
+        // most of the field of view.
+        const vW = 3.9;                  // video width  (world units, pre screenScale)
+        const vH = vW * 9 / 16;          // 16:9 — keep the clip's aspect (no letterbox)
+
+        const panel = document.createElement('a-entity');
+        panel.setAttribute('id', 'info-panel');
+        panel.setAttribute('visible', false);
+        // Pop-in: settle at the fill-the-view magnification (CONFIG.vr.screenScale).
+        const s = CONFIG.vr.screenScale;
+        panel.setAttribute('animation__pop',
+          `property: scale; from: ${0.7 * s} ${0.7 * s} ${0.7 * s}; to: ${s} ${s} ${s}; dur: 250; startEvents: panelshow; easing: easeOutQuad`);
+
+        // Invisible catcher (video-sized) so a gaze/tap on the screen never
+        // passes THROUGH to the pins / map behind it.
+        const catcher = document.createElement('a-entity');
+        catcher.setAttribute('id', 'panel-catcher');
+        catcher.setAttribute('class', 'clickable');
+        catcher.setAttribute('geometry', `primitive: plane; width: ${vW}; height: ${vH}`);
+        catcher.setAttribute('material', 'opacity: 0; transparent: true; side: double');
+        catcher.setAttribute('position', '0 0 0.015');
+        panel.appendChild(catcher);
+
+        // The video — the ONLY visible element. Flat, edge to edge.
+        const screen = document.createElement('a-entity');
+        screen.setAttribute('id', 'panel-video');
+        screen.setAttribute('geometry', `primitive: plane; width: ${vW}; height: ${vH}`);
+        screen.setAttribute('material', 'src: #pinVideo; shader: flat; color: #FFFFFF; side: front');
+        screen.setAttribute('position', '0 0 0.02');
+        panel.appendChild(screen);
+
+        // Title / description kept for titled pins (empty for the current ones,
+        // so nothing shows). They sit just outside the screen.
+        const title = document.createElement('a-entity');
+        title.setAttribute('text', {
+          value: '', color: '#132019', align: 'center', anchor: 'center',
+          width: 3.5, wrapCount: 22, font: 'mozillavr'
+        });
+        title.setAttribute('position', `0 ${vH / 2 + 0.2} 0.02`);
+        panel.appendChild(title);
+
+        const desc = document.createElement('a-entity');
+        desc.setAttribute('text', {
+          value: '', color: '#3A463A', align: 'center', anchor: 'center', baseline: 'top',
+          width: vW, wrapCount: 45
+        });
+        desc.setAttribute('position', `0 ${-vH / 2 - 0.14} 0.02`);
+        panel.appendChild(desc);
+
+        // No close (✕) button by request — the clip plays once and auto-closes
+        // when it ends (see the #pinVideo 'ended' handler in wireEvents).
+        this.closeBtn = null;
+
+        // Head-lock the screen: parent it to the CAMERA so that, once shown, it
+        // stays welded to the view and NEVER moves as the head turns.
+        // (Falls back to the scene if #rig is absent.)
+        // It starts PARKED far away — otherwise its invisible gaze-catcher would
+        // sit right in front of the eyes and block the raycaster from ever
+        // reaching the pins. showVrPanel brings it forward when a pin opens.
+        panel.setAttribute('position', '0 -9999 0');
+        const camEl = this.sceneEl.querySelector('#rig');
+        (camEl || this.sceneEl).appendChild(panel);
+        this.panelEl = panel;
+        this.titleEl = title;
+        this.descEl = desc;
+        this.screenEl = screen;
+      },
+
+      /* ---- Wire selection + dismissal ---- */
+      wireEvents: function () {
+        this.sceneEl.addEventListener('pin:select', (e) => this.showPanel(e.detail.pinEl, e.detail.data));
+
+        if (this.closeBtn) {
+          this.closeBtn.addEventListener('click', () => this.hidePanel());
+        }
+
+        // The VR screen plays once (its <video> no longer loops) and closes
+        // itself the moment it finishes — so there's no ✕ button to tap.
+        if (this.videoEl) {
+          this.videoEl.addEventListener('ended', () => this.hidePanel());
+        }
+      },
+
+      /* ---- Cache the fullscreen HTML popup + wire its controls ---- */
+      setupOverlay: function () {
+        const root = document.getElementById('site-popup');
+        if (!root) return;
+        this.popup = {
+          root:      root,
+          title:     root.querySelector('.sp-title'),
+          desc:      root.querySelector('.sp-desc'),
+          video:     root.querySelector('#popup-video'),
+          videoWrap: root.querySelector('.sp-video-wrap')
+        };
+        // The ✕ button was removed by request — the video now closes itself
+        // when it finishes (see the 'ended' handler below). Guard the lookup
+        // so nothing breaks if the markup no longer has a close button.
+        const closeBtn = root.querySelector('.sp-close');
+        if (closeBtn) closeBtn.addEventListener('click', () => this.hidePanel());
+
+        // Auto-close the popup the moment the clip finishes (it no longer loops),
+        // returning the user to the map.
+        if (this.popup.video) {
+          this.popup.video.addEventListener('ended', () => this.hidePanel());
+        }
+        // Close when clicking the empty area (backdrop / body), but not the
+        // video, title, description or nav.
+        root.addEventListener('click', (e) => {
+          if (e.target === root ||
+              e.target.classList.contains('sp-backdrop') ||
+              e.target.classList.contains('sp-body')) {
+            this.hidePanel();
+          }
+        });
+        document.addEventListener('keydown', (e) => {
+          if (e.key === 'Escape' && !root.classList.contains('is-hidden')) this.hidePanel();
+        });
+      },
+
+      /* ---- Show a pin's popup (hides the previous one) ---- */
+      showPanel: function (headEl, data) {
+        if (this.currentPin && this.currentPin !== headEl) {
+          this.currentPin.components['map-pin'].setActive(false);
+        }
+        this.currentPin = headEl;
+        this.currentData = data;   // remembered so switchLanguage() can re-point the video
+        headEl.components['map-pin'].setActive(true);
+
+        // Inside the VR split-screen: play the clip right there as a big FLAT
+        // video screen (see showVrPanel — no 3D card, fixed in place, fills the
+        // view). Outside VR (desktop / phone): the full-screen HTML overlay.
+        if (this.sceneEl.is('vr-mode')) this.showVrPanel(headEl, data);
+        else this.showOverlay(data);
+      },
+
+      // FLAT video screen, HEAD-LOCKED to the view (used inside VR).
+      //
+      // The screen is a CHILD of the camera (see buildPanel), sitting a fixed
+      // distance straight ahead — welded to the view, so it stays exactly in
+      // front of the eyes and NEVER moves, drifts or rotates as the head turns.
+      // Here we only re-park it in front, switch off the gaze cursor, and reveal it.
+      showVrPanel: function (headEl, data) {
+        // Re-park the head-locked screen in front of the eyes (hidePanel parks
+        // it out of the way when it closes).
+        this.panelEl.setAttribute('position', `0 0 -${CONFIG.vr.screenDistance}`);
+
+        // Nothing to gaze at while the video is up (no ✕ button), and we must
+        // not let the fuse cursor fixate on the screen or select a pin hidden
+        // behind it — so switch the raycaster off until it closes.
+        if (this.cursorEl) this.cursorEl.setAttribute('raycaster', 'objects', '.none');
+
+        this.titleEl.setAttribute('text', 'value', data.title || '');
+        this.descEl.setAttribute('text', 'value', data.description || '');
+        this.playVideo(videoForLanguage(data, currentLanguage));
+        this.panelEl.setAttribute('visible', true);
+        this.panelEl.emit('panelshow');
+      },
+
+      // Near-fullscreen HTML overlay (used outside VR).
+      showOverlay: function (data) {
+        const p = this.popup;
+        if (!p) return;
+        p.title.textContent = data.title;   // title/description stay language-independent
+        p.desc.textContent  = data.description || '';
+        this.playOverlayVideo(videoForLanguage(data, currentLanguage));
+        p.root.classList.remove('is-hidden');
+        // Change raycaster objects to none instead of disabling it.
+        // This forces it to naturally emit mouseleave on the current pin,
+        // avoiding a stuck state where the cursor thinks it never left.
+        this.cursorEl.setAttribute('raycaster', 'objects', '.none');
+      },
+
+      // Point the HTML overlay's <video> at `url` and (re)start it from 0.
+      // This is the SINGLE overlay-video implementation — both opening a pin
+      // and switching language while it's open funnel through here.
+      playOverlayVideo: function (url) {
+        const p = this.popup;
+        if (!p) return;
+        if (!url) {                          // no clip for this pin/language
+          p.videoWrap.style.display = 'none';
+          try { p.video.pause(); } catch (e) {}
+          return;
+        }
+        p.videoWrap.style.display = '';
+        this.playInto(p.video, url);
+      },
+
+      hideOverlay: function () {
+        const p = this.popup;
+        if (!p || p.root.classList.contains('is-hidden')) return;
+        p.root.classList.add('is-hidden');
+        try { p.video.pause(); } catch (e) {}
+        this.cursorEl.setAttribute('raycaster', 'objects', '.clickable');
+      },
+
+      hidePanel: function () {
+        // Close whichever popup is open (3D panel and/or HTML overlay).
+        if (this.panelEl && this.panelEl.getAttribute('visible')) {
+          this.panelEl.setAttribute('visible', false);
+          // Move out of the way to ensure invisible elements do not block the raycaster
+          this.panelEl.setAttribute('position', '0 -9999 0');
+          
+          // Re-enable gaze selection of pins now the screen is gone.
+          if (this.cursorEl) this.cursorEl.setAttribute('raycaster', 'objects', '.clickable');
+
+          this.stopVideo();
+        }
+        this.hideOverlay();
+        if (this.currentPin) {
+          this.currentPin.components['map-pin'].setActive(false);
+          this.currentPin = null;
+        }
+        this.currentData = null;
+      },
+
+      /* ---- Language switching (no reload) ----
+       * Called when the dropdown changes. If a popup is open, re-point ONLY
+       * its video at the newly-selected language and restart from the start;
+       * the popup, its title and description are preserved. Whichever popup is
+       * actually visible (3D VR panel and/or HTML overlay) is updated. */
+      switchLanguage: function () {
+        if (!this.currentData) return;      // nothing open -> nothing to do
+        const url = videoForLanguage(this.currentData, currentLanguage);
+        if (this.panelEl && this.panelEl.getAttribute('visible')) {
+          this.playVideo(url);              // 3D VR panel
+        }
+        if (this.popup && !this.popup.root.classList.contains('is-hidden')) {
+          this.playOverlayVideo(url);       // HTML overlay
+        }
+      },
+
+      /* ---- Video helpers ----
+       * One shared <video> element is re-pointed at each pin's clip.
+       * Playback is muted so mobile browsers allow autoplay after unlock.
+       * Audio can be enabled later with a user-facing un-mute control. */
+      playVideo: function (url) {
+        const screenVisible = !!url;
+        this.screenEl.setAttribute('visible', screenVisible);
+        if (!screenVisible) { this.stopVideo(); return; }
+        this.playInto(this.videoEl, url);    // VR panel's video texture
+      },
+
+      // Shared "point a <video> at `url`, restart from 0, play audible (fall
+      // back to muted if the browser blocks it)" routine — used by BOTH the VR
+      // texture (#pinVideo) and the HTML overlay (#popup-video). Also arms a
+      // one-shot English fallback in case the file for this language is missing.
+      playInto: function (videoEl, url) {
+        const englishUrl = this.currentData ? videoForLanguage(this.currentData, 'english') : '';
+        this.armEnglishFallback(videoEl, url, englishUrl);
+        if (videoEl.getAttribute('src') !== url) {
+          videoEl.setAttribute('src', url);
+          videoEl.load();
+        }
+        videoEl.currentTime = 0;             // always start from the beginning
+        videoEl.muted = false;
+        videoEl.volume = 1;
+        const p = videoEl.play();
+        if (p && p.catch) {
+          p.catch(() => { videoEl.muted = true; videoEl.play().catch(() => {}); });
+        }
+      },
+
+      // If `url` fails to load (e.g. a missing language-specific file → 404),
+      // retry ONCE with the pin's English clip. No-op when `url` already IS
+      // English, so the baseline never loops on itself.
+      armEnglishFallback: function (videoEl, url, englishUrl) {
+        if (videoEl.__langFallback) {        // drop any handler from a prior play
+          videoEl.removeEventListener('error', videoEl.__langFallback);
+          videoEl.__langFallback = null;
+        }
+        if (!englishUrl || url === englishUrl) return;
+        const handler = () => {
+          videoEl.removeEventListener('error', handler);
+          videoEl.__langFallback = null;
+          console.warn('[i18n] Missing video for "' + currentLanguage + '": ' + url +
+                       ' — falling back to English.');
+          videoEl.setAttribute('src', englishUrl);
+          videoEl.load();
+          videoEl.currentTime = 0;
+          const p = videoEl.play();
+          if (p && p.catch) p.catch(() => { videoEl.muted = true; videoEl.play().catch(() => {}); });
+        };
+        videoEl.__langFallback = handler;
+        videoEl.addEventListener('error', handler);
+      },
+
+      stopVideo: function () {
+        try { this.videoEl.pause(); } catch (e) {}
+      }
+    });
+  </script>
+</head>
+
+<body>
+  <!-- Start gate: first tap requests permissions, unlocks video, builds the scene. -->
+  <div id="start-overlay" role="dialog" aria-label="Start experience">
+    <p class="eyebrow">Al Madinah &bull; VR Map</p>
+    <h1>Start Your Journey</h1>
+    <p>Explore the holy sites of Al Madinah in VR. Place your phone in the Irusu Monster VR headset and tap below — then look at a marker to explore. On desktop, use mouse look and click.</p>
+    <button id="start-btn" class="vr-btn" type="button">Start Experience</button>
+  </div>
+
+  <!-- Brand top bar (title + hint). Hidden before start and in VR. -->
+  <header id="topbar" class="is-hidden">
+    <span class="brand-name">AL MADINAH</span>
+    <span class="brand-sub">Look at a marker for 1.5s (or tap) to explore a site</span>
+  </header>
+
+  <button id="enter-vr-btn" class="vr-btn is-hidden" type="button" aria-label="Enter VR">Enter VR</button>
+
+  <!-- Recenter the view (top-right). Revealed once the experience starts. -->
+  <button id="reset-view-btn" class="vr-btn vr-btn--secondary is-hidden" type="button" aria-label="Reset View">Reset View</button>
+
+  <!-- Language selector (top-right). Revealed on start, hidden in immersive VR.
+       SCALABILITY: add a language by adding ONE <option> here whose value
+       matches a key in each pin's `videos` map (see PIN_DATA). No JS changes. -->
+  <select id="lang-select" class="is-hidden" aria-label="Select language">
+    <option value="english">English</option>
+    <option value="arabic">Arabic</option>
+    <option value="indonesian">Indonesian</option>
+  </select>
+
+  <!-- Near-fullscreen popup (desktop / phone magic-window). Shown on pin
+       select when NOT in immersive VR; the 3D panel is used inside VR. -->
+  <div id="site-popup" class="is-hidden" role="dialog" aria-modal="true" aria-label="Site details">
+    <div class="sp-backdrop"></div>
+    <nav class="sp-nav">
+      <span class="sp-logo">Madinah</span>
+      <!-- Close (✕) button removed by request: the video closes itself when it ends. -->
+    </nav>
+    <div class="sp-body">
+      <h2 class="sp-title"></h2>
+      <div class="sp-video-wrap">
+        <!-- No `loop`: the clip plays once, then the 'ended' handler closes the popup. -->
+        <video id="popup-video" class="sp-video" playsinline webkit-playsinline controls preload="metadata"></video>
+      </div>
+      <p class="sp-desc"></p>
+    </div>
+  </div>
+
+  <!-- Shared video texture source (off-screen but still decoding). -->
+  <!-- No `loop`: in VR the clip plays once, then its 'ended' handler closes the screen. -->
+  <video id="pinVideo" crossorigin="anonymous" muted playsinline webkit-playsinline
+         preload="auto" x-webkit-airplay="deny"
+         src="https://mdn.github.io/dom-examples/media/cc0-videos/flower.mp4"></video>
+
+  <!-- ================================================================
+       SECTION 5 — THE SCENE (structure; content built by vr-map-app)
+       ================================================================ -->
+  <a-scene vr-map-app
+           vr-mode-ui="enabled: false"
+           renderer="antialias: true; colorManagement: true"
+           background="color: #FFFFFF"
+           fog="type: linear; color: #FFFFFF; near: 14; far: 38">
+
+    <!-- (map.svg is loaded directly by the svg-map component, no <a-assets>.) -->
+
+    <!-- Lighting: soft ambient + a key light + a warm fill. -->
+    <a-light type="ambient" color="#DDE7D6" intensity="0.95"></a-light>
+    <a-light type="directional" color="#FFFFFF" intensity="0.55" position="-1 2 2"></a-light>
+    <a-light type="point" color="#CDE8B8" intensity="0.35" position="0 2.5 -2"></a-light>
+
+    <!-- White background. -->
+    <a-sky color="#FFFFFF"></a-sky>
+
+    <!-- Title/subtitle live in the HTML #topbar overlay so the map can fill the
+         view; that overlay hides automatically in immersive VR. -->
+
+    <!--
+      Recenter rig: a parent wrapper around the camera. The "Reset View"
+      button rotates THIS entity to cancel the user's current heading, so
+      the map snaps back in front of them (works for Cardboard / magic window).
+    -->
+    <a-entity id="recenter-rig">
+      <!--
+        Camera:
+        - look-controls drives the view from device orientation on mobile
+          (the Cardboard "magic window"), plus mouse/touch drag on desktop.
+        - A center reticle with a 1.5s fuse fires `click` on pins via GAZE
+          alone — no controllers needed, which is exactly what Cardboard wants.
+      -->
+      <a-camera id="rig"
+                position="0 1.6 0"
+                look-controls="touchEnabled: true; magicWindowTrackingEnabled: true; pointerLockEnabled: false"
+                wasd-controls="enabled: false">
+        <a-entity id="cursor"
+                  cursor="fuse: true; fuseTimeout: 1500"
+                  raycaster="objects: .clickable; far: 50"
+                  position="0 0 -1.2"
+                  geometry="primitive: ring; radiusInner: 0.013; radiusOuter: 0.024"
+                  material="color: #FF6B00; shader: flat; opacity: 0.95; transparent: true; depthTest: false">
+          <a-entity id="cursor-progress"
+                    geometry="primitive: circle; radius: 0.012"
+                    material="color: #FFD166; shader: flat; opacity: 0.95; transparent: true; depthTest: false"
+                    scale="0 0 0"></a-entity>
+        </a-entity>
+      </a-camera>
+    </a-entity>
+
+    <!-- Map board, pins and info panel are generated at runtime. -->
+
+  </a-scene>
+</body>
+</html>
