@@ -517,43 +517,45 @@
     }
 
     /**
-     * Recenter the view ("Reset View") — snap the map back dead-centre, exactly
-     * as it appears on a fresh page load.
+     * Recenter the view ("Reset View" + auto-fire when a video closes) — place
+     * the map dead-centre on the user's current gaze.
      *
-     * The faithful way to reproduce "fresh land" is to re-baseline look-controls
-     * the same way a page reload does, rather than nudging the parent rig:
-     *   - clear the mouse/touch drag accumulators (pitchObject / yawObject), and
-     *   - clear the device-orientation "magic window" yaw delta + its baseline,
-     *     so the CURRENT heading becomes "forward" again on the next frame.
-     * This recenters BOTH the heading and (on desktop) the pitch, so the whole
-     * map — not just the cursor — returns to centre. On mobile, pitch keeps
-     * following the phone's physical tilt (same as a fresh load: you hold the
-     * phone up to look level at the map).
+     * Instead of rotating the CAMERA (which in immersive VR depends on WebXR's
+     * camera-pose plumbing and did NOT move the map in the headset), we re-pose
+     * the WORLD container that holds the map + pins. Moving scene content is
+     * unambiguous and works identically in the magic-window and in real VR.
+     *
+     * The container's contents are stored relative to the eyes, so we pivot it
+     * about the eye position and aim its local -Z (where the map sits) along the
+     * FULL head-forward vector. That centres the map for ANY gaze — left/right
+     * AND up/down — with no atan2 yaw singularity when looking straight up/down.
      */
     function recenterView(sceneEl) {
-      const cam = sceneEl.querySelector('#rig');
-      const rig = sceneEl.querySelector('#recenter-rig');
-      if (!cam || !rig) return;
+      const world = sceneEl.querySelector('#world');
+      if (!world) return;
 
-      const lc = cam.components['look-controls'];
-
-      // Preferred path: reset look-controls' own state to its fresh-load values.
-      if (lc && lc.pitchObject && lc.yawObject && lc.magicWindowDeltaEuler) {
-        rig.object3D.rotation.set(0, 0, 0);      // clear any earlier recenter offset
-        lc.pitchObject.rotation.set(0, 0, 0);    // undo mouse/touch look (pitch)
-        lc.yawObject.rotation.set(0, 0, 0);      // undo mouse/touch look (yaw)
-        lc.magicWindowDeltaEuler.set(0, 0, 0);   // undo accumulated device yaw
-        lc.previousMagicWindowYaw = null;        // re-baseline heading next frame
-        return;
-      }
-
-      // Fallback (look-controls internals unavailable): cancel just the heading
-      // on the parent rig, using the forward vector so it's robust to pitch/roll.
       const THREE = AFRAME.THREE;
+      const cam = sceneEl.querySelector('#rig');
+      // Read from the #rig camera ENTITY's object3D — its children (gaze cursor,
+      // video panel, debug HUD) are head-locked in VR, which proves its world
+      // transform is the live head pose. (renderer.xr.getCamera() gave a bogus
+      // near-vertical forward between frames; sceneEl.camera agrees with #rig.)
+      const camObj = (cam && cam.object3D) || sceneEl.camera;
+      if (!camObj) return;
+
+      // Head position + full forward (-Z) direction in world space.
+      const camPos = new THREE.Vector3();
+      camObj.getWorldPosition(camPos);
       const q = new THREE.Quaternion();
-      cam.object3D.getWorldQuaternion(q);
-      const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(q);
-      rig.object3D.rotation.y -= Math.atan2(-fwd.x, -fwd.z);
+      camObj.getWorldQuaternion(q);
+      const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(q).normalize();
+
+      // Pivot the whole map/pins world about the EYES and aim its local -Z (where
+      // the map sits) along the FULL gaze direction — so the map lands dead-centre
+      // no matter where you look, left/right AND up/down. setFromUnitVectors has
+      // no atan2 singularity, so looking straight up/down no longer breaks it.
+      world.object3D.position.copy(camPos);
+      world.object3D.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, -1), fwd);
     }
 
     /** Wire Start / Enter VR overlays and scene VR lifecycle events. */
@@ -899,8 +901,27 @@
         const height = m.height;
         const width  = height * m.aspect;     // keep the SVG's aspect ratio
 
-        // Stored so pin placement (this.toBoard) can map u/v -> world.
+        // Eye-height pivot. The map/pins are stored RELATIVE to the eyes (we drop
+        // the camera height out of their Y), and the #world container is placed
+        // back up at eye height. Recentring then pivots #world about the eyes and
+        // aims its local -Z along the gaze — so the map lands dead-centre whether
+        // you look left/right OR up/down. Matches the a-camera at "0 1.6 0".
+        this.PIVOT_Y = 1.6;
+        boardPos.y -= this.PIVOT_Y;
+
+        // Stored so pin placement (this.toBoard) can map u/v -> eye-relative pos.
         this.board = { pos: boardPos, width: width, height: height };
+
+        // A single container holding ALL world-space content (map board + pins).
+        // "Reset View" / auto-recenter re-poses THIS to put the map in front of
+        // the user. Moving the content works identically in the magic-window AND
+        // in immersive VR — unlike rotating the camera rig, which depends on
+        // WebXR's camera-pose plumbing and didn't take effect in the headset.
+        const world = document.createElement('a-entity');
+        world.setAttribute('id', 'world');
+        world.setAttribute('position', `0 ${this.PIVOT_Y} 0`);
+        this.sceneEl.appendChild(world);
+        this.worldEl = world;
 
         const board = document.createElement('a-entity');
         board.setAttribute('id', 'map-board');
@@ -922,7 +943,7 @@
         mapPlane.setAttribute('position', vec3ToStr(boardPos));
         board.appendChild(mapPlane);
 
-        this.sceneEl.appendChild(board);
+        this.worldEl.appendChild(board);
         this.boardEl = board;
       },
 
@@ -942,7 +963,9 @@
         const container = document.createElement('a-entity');
         container.setAttribute('id', 'pins');
         PIN_DATA.forEach((data) => container.appendChild(this.createPin(data)));
-        this.sceneEl.appendChild(container);
+        // Into the SAME world container as the map so recentring moves both
+        // together and the pins stay perfectly aligned to the board.
+        this.worldEl.appendChild(container);
         this.pinsEl = container;
       },
 
