@@ -14,6 +14,28 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Pacifico&display=swap" rel="stylesheet">
 
   <!-- ============================================================
+       WebXR polyfill — MUST load BEFORE A-Frame.
+       iOS (every browser is WebKit) ships NO native WebXR, so
+       A-Frame's Enter VR / immersive-vr session request rejects and
+       "Enter VR" does nothing. Android Chrome has native WebXR, which
+       is why it works there. This polyfill supplies a Google-Cardboard
+       stereo fallback (device-orientation head tracking + barrel
+       distortion) via navigator.xr for browsers without it. On devices
+       that DO have native WebXR (Android/desktop) it detects real
+       support and stays out of the way — so Android behaviour is
+       unchanged; only iOS gains a working Enter VR.
+       ============================================================ -->
+  <script src="https://cdn.jsdelivr.net/npm/webxr-polyfill@2.0.3/build/webxr-polyfill.min.js"></script>
+  <script>
+    // Instantiate the polyfill. It no-ops on browsers that already have
+    // native WebXR, and enables the Cardboard XR device on those that don't
+    // (notably iOS Safari). Cardboard head tracking needs the device-
+    // orientation permission that the Start tap already requests
+    // (see requestMotionPermission()).
+    if (window.WebXRPolyfill) { new WebXRPolyfill(); }
+  </script>
+
+  <!-- ============================================================
        A-FRAME (latest stable, from CDN) — the ONLY framework used.
        ============================================================ -->
   <script src="https://aframe.io/releases/1.7.0/aframe.min.js"></script>
@@ -604,7 +626,7 @@
               console.error('[VR] ❌ enterVR() promise REJECTED. Reason:',
                             (err && (err.name + ': ' + err.message)) || err, '\nFull error object:', err);
               const msg = isTouchPrimaryDevice()
-                ? 'VR mode unavailable on this device/browser. (See the [VR] error above — often: no WebXR immersive-vr support, e.g. iOS Safari, or no headset.)'
+                ? 'VR mode unavailable on this device/browser. (See the [VR] error above. On iOS the WebXR polyfill supplies a Cardboard fallback — this usually means device-orientation permission was denied. Re-tap Start and Allow Motion & Orientation Access.)'
                 : 'VR mode is not available in this browser (no WebXR headset session).';
               console.warn('[VR] ' + msg);
             });
@@ -635,10 +657,10 @@
                                     ok ? '(headset VR available)' : '(NO immersive-vr — Enter VR will reject)'))
           .catch((err) => console.warn('[VR] isSessionSupported("immersive-vr") threw:', err));
       } else {
-        console.warn('[VR] ❗ WebXR (navigator.xr) is NOT available in this browser. ' +
-                     'Dev tunnels serve HTTPS (good), so this is a browser/device limit — ' +
-                     'e.g. iOS Safari has no WebXR at all. Note: A-Frame 1.7 has NO built-in ' +
-                     'cardboard-stereo fallback, so Enter VR needs real WebXR immersive-vr support.');
+        console.warn('[VR] ❗ WebXR (navigator.xr) is NOT available — the webxr-polyfill did ' +
+                     'not install. Check that webxr-polyfill.min.js loaded BEFORE aframe.min.js ' +
+                     '(CDN reachable) and that `new WebXRPolyfill()` ran. Without it, iOS Safari ' +
+                     '(no native WebXR) cannot enter the Cardboard stereo view.');
       }
     }
 
