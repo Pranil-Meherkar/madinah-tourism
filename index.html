@@ -253,8 +253,13 @@
       // stays welded to the view and never moves or drifts as the head turns.
       //   screenDistance — how far ahead of the eyes the screen is locked (m).
       //   screenScale    — uniform magnification so the video fills most of the
-      //                    field of view.
-      vr: { screenDistance: 2.3, screenScale: 1.6 }
+      //                    field of view. The screen is 16:9, so this is tuned
+      //                    to fill the VERTICAL view (killing the white sky bands
+      //                    above/below the clip). That over-fills the horizontal,
+      //                    so the extreme left/right edges spill past the lens
+      //                    vignette — an acceptable trade for an edge-to-edge,
+      //                    no-letterbox image.
+      vr: { screenDistance: 2.3, screenScale: 2.0 }
     };
 
     /* ================================================================
