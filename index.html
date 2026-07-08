@@ -1240,12 +1240,15 @@
       },
 
       hidePanel: function () {
+        // Was a popup actually showing? (Used to auto-recenter on close.)
+        const wasOpen = !!this.currentPin;
+
         // Close whichever popup is open (3D panel and/or HTML overlay).
         if (this.panelEl && this.panelEl.getAttribute('visible')) {
           this.panelEl.setAttribute('visible', false);
           // Move out of the way to ensure invisible elements do not block the raycaster
           this.panelEl.setAttribute('position', '0 -9999 0');
-          
+
           // Re-enable gaze selection of pins now the screen is gone.
           if (this.cursorEl) this.cursorEl.setAttribute('raycaster', 'objects', '.clickable');
 
@@ -1257,6 +1260,11 @@
           this.currentPin = null;
         }
         this.currentData = null;
+
+        // When a clip finishes (or is dismissed) the user is returned to the
+        // map — snap it back to centre too, exactly like the Reset View button,
+        // so they're always looking straight at the map after a video closes.
+        if (wasOpen) recenterView(this.sceneEl);
       },
 
       /* ---- Language switching (no reload) ----
