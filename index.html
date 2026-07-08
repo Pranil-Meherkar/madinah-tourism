@@ -334,6 +334,8 @@
       // },
       {
         id: 'nabawi',
+        // `name` is the label shown in the gaze tooltip (the hover name-tag).
+        name: 'Al-Masjid an-Nabawi',
         // title: 'Al-Masjid an-Nabawi',
         // description: "The Prophet's Mosque - the second-holiest site in Islam, established in 622 CE.",
         marker: 'marker1', // mosque
@@ -358,6 +360,8 @@
       // },
       {
         id: 'quba',
+        // `name` is the label shown in the gaze tooltip (the hover name-tag).
+        name: 'Quba Mosque',
         // title: 'Quba Mosque',
         // description: 'The first mosque built in Islam. The Prophet (pbuh) said praying here equals the reward of an Umrah.',
         marker: 'marker1', // mosque
@@ -958,22 +962,58 @@
           `property: scale; to: 1 1 1; startEvents: mouseleave; dur: 150; easing: easeOutQuad`);
         wrapper.appendChild(marker);
 
-        // Name tag (revealed on hover / while active), floated above the marker.
+        // ---- Name tag: a polished rounded "pill" callout, revealed on hover /
+        // while active. It floats above the marker with a small tail pointing
+        // down at it, so it reads as a proper map tooltip. Built from the
+        // reusable createRoundedRect() helper (a stadium/pill shape) with a
+        // white halo for contrast against the gray map, and the site name set
+        // in brand cream on green.
+        const label = data.name || data.title || '';
+
         const tag = document.createElement('a-entity');
         tag.setAttribute('class', 'pin-tag');
         tag.setAttribute('visible', false);
-        tag.setAttribute('position', `0 ${yOff + P.height / 2 + 0.14} ${P.zOffset + 0.01}`);
-        const tagBg = document.createElement('a-entity');
-        tagBg.setAttribute('geometry', 'primitive: plane; width: 1.7; height: 0.3');
-        tagBg.setAttribute('material', `color: ${C.tagBg}; shader: flat; opacity: 0.9; transparent: true`);
-        tag.appendChild(tagBg);
+
+        // Size the pill to fit the text — no more empty bar or overflowing text.
+        const charW      = 0.085;                    // ≈ world units per glyph (readable at map distance)
+        const wrapCount  = label.length + 2;         // +buffer so a single line never wraps
+        const textAreaW  = wrapCount * charW;        // `width` fed to the text component
+        const glyphsW    = label.length * charW;     // approx rendered span of the text
+        const padX       = 0.17;                     // horizontal breathing room
+        const pillH      = 0.34;
+        const r          = pillH / 2;                // full stadium/pill end caps
+        const pillW      = Math.max(glyphsW + 2 * padX, pillH + 0.2);
+
+        // White halo (border) behind the pill — crisp against the gray map.
+        const border = createRoundedRect(pillW + 0.06, pillH + 0.06, r + 0.03, C.frame, 1.0);
+        border.setAttribute('position', '0 0 0');
+        tag.appendChild(border);
+
+        // The green pill.
+        const pill = createRoundedRect(pillW, pillH, r, C.tagBg, 1.0);
+        pill.setAttribute('position', '0 0 0.006');
+        tag.appendChild(pill);
+
+        // Small downward tail that anchors the callout to the marker.
+        const tail = document.createElement('a-triangle');
+        tail.setAttribute('vertex-a', '0 -0.16 0');
+        tail.setAttribute('vertex-b', '-0.1 0.02 0');
+        tail.setAttribute('vertex-c', '0.1 0.02 0');
+        tail.setAttribute('material', `color: ${C.tagBg}; shader: flat; side: double`);
+        tail.setAttribute('position', `0 ${-pillH / 2 + 0.02} 0.005`);
+        tag.appendChild(tail);
+
+        // The site name.
         const tagText = document.createElement('a-entity');
         tagText.setAttribute('text', {
-          value: data.title, color: C.tagText, align: 'center', anchor: 'center',
-          width: 2.6, wrapCount: 22
+          value: label, color: C.tagText, align: 'center', anchor: 'center',
+          baseline: 'center', width: textAreaW, wrapCount: wrapCount
         });
-        tagText.setAttribute('position', '0 0 0.01');
+        tagText.setAttribute('position', '0 0 0.014');
         tag.appendChild(tagText);
+
+        // Lift the whole callout above the marker, leaving room for the tail.
+        tag.setAttribute('position', `0 ${yOff + P.height / 2 + 0.34} ${P.zOffset + 0.02}`);
         wrapper.appendChild(tag);
 
         return wrapper;
