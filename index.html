@@ -517,23 +517,43 @@
     }
 
     /**
-     * Recenter the view ("Reset View").
-     * look-controls keeps applying the live device orientation every frame,
-     * so we can't just zero the camera's rotation. Instead we rotate the
-     * PARENT recenter-rig by the negative of the camera's current world yaw,
-     * which makes wherever the user is currently looking become "forward"
-     * (i.e. the map snaps back in front of them). Pitch/roll are left alone.
+     * Recenter the view ("Reset View") — snap the map back dead-centre, exactly
+     * as it appears on a fresh page load.
+     *
+     * The faithful way to reproduce "fresh land" is to re-baseline look-controls
+     * the same way a page reload does, rather than nudging the parent rig:
+     *   - clear the mouse/touch drag accumulators (pitchObject / yawObject), and
+     *   - clear the device-orientation "magic window" yaw delta + its baseline,
+     *     so the CURRENT heading becomes "forward" again on the next frame.
+     * This recenters BOTH the heading and (on desktop) the pitch, so the whole
+     * map — not just the cursor — returns to centre. On mobile, pitch keeps
+     * following the phone's physical tilt (same as a fresh load: you hold the
+     * phone up to look level at the map).
      */
     function recenterView(sceneEl) {
       const cam = sceneEl.querySelector('#rig');
       const rig = sceneEl.querySelector('#recenter-rig');
       if (!cam || !rig) return;
 
+      const lc = cam.components['look-controls'];
+
+      // Preferred path: reset look-controls' own state to its fresh-load values.
+      if (lc && lc.pitchObject && lc.yawObject && lc.magicWindowDeltaEuler) {
+        rig.object3D.rotation.set(0, 0, 0);      // clear any earlier recenter offset
+        lc.pitchObject.rotation.set(0, 0, 0);    // undo mouse/touch look (pitch)
+        lc.yawObject.rotation.set(0, 0, 0);      // undo mouse/touch look (yaw)
+        lc.magicWindowDeltaEuler.set(0, 0, 0);   // undo accumulated device yaw
+        lc.previousMagicWindowYaw = null;        // re-baseline heading next frame
+        return;
+      }
+
+      // Fallback (look-controls internals unavailable): cancel just the heading
+      // on the parent rig, using the forward vector so it's robust to pitch/roll.
       const THREE = AFRAME.THREE;
       const q = new THREE.Quaternion();
-      cam.object3D.getWorldQuaternion(q);                 // current head orientation
-      const euler = new THREE.Euler().setFromQuaternion(q, 'YXZ');
-      rig.object3D.rotation.y -= euler.y;                 // cancel current heading
+      cam.object3D.getWorldQuaternion(q);
+      const fwd = new THREE.Vector3(0, 0, -1).applyQuaternion(q);
+      rig.object3D.rotation.y -= Math.atan2(-fwd.x, -fwd.z);
     }
 
     /** Wire Start / Enter VR overlays and scene VR lifecycle events. */
